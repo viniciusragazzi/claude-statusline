@@ -49,9 +49,9 @@ fi
 fmt_tokens() {
   local n=$1
   if [ "$n" -ge 1000000 ]; then
-    awk "BEGIN { printf \"%.1fM\", $n / 1000000 }"
+    awk "BEGIN { v = $n / 1000000; if (v == int(v)) printf \"%dM\", v; else printf \"%.1fM\", v }"
   elif [ "$n" -ge 1000 ]; then
-    awk "BEGIN { printf \"%.0fk\", $n / 1000 }"
+    awk "BEGIN { printf \"%dk\", $n / 1000 }"
   else
     echo "$n"
   fi
@@ -140,5 +140,5 @@ else
   coststr=''
 fi
 
-printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m(%s/%s)\033[0m%b%s" \
+printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m%s/%s\033[0m%b%s" \
   "$dir" "$modelinfo" "$bar" "$ui" "$used_str" "$max_str" "$rlstr" "$coststr"
