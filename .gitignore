@@ -1,0 +1,22 @@
+# Playwright debug artifacts
+.playwright-cli/
+*.playwright-cli/
+
+# Local backups
+*.bak
+*.bak.*
+settings.json.bak.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local env / secrets — never commit these
+.env
+.env.*
+*.local
+secrets/
