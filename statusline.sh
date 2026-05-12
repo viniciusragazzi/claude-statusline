@@ -77,21 +77,15 @@ fmt_remaining() {
   local now=$(date +%s)
   local diff=$(( target - now ))
   [ "$diff" -le 0 ] && return
-  local h=$(( diff / 3600 ))
+  local d=$(( diff / 86400 ))
+  local h=$(( (diff % 86400) / 3600 ))
   local m=$(( (diff % 3600) / 60 ))
-  if [ "$h" -gt 0 ]; then
-    echo "${h}h${m}m"
+  if [ "$d" -gt 0 ]; then
+    printf '%dd %dh%02dm' "$d" "$h" "$m"
+  elif [ "$h" -gt 0 ]; then
+    printf '%dh%02dm' "$h" "$m"
   else
-    echo "${m}m"
-  fi
-}
-
-fmt_date() {
-  local ts=$1
-  if [[ "$ts" =~ ^[0-9]+$ ]]; then
-    date -d "@$ts" "+%a %d %b" 2>/dev/null
-  else
-    date -d "$ts" "+%a %d %b" 2>/dev/null
+    printf '%dm' "$m"
   fi
 }
 
@@ -125,7 +119,7 @@ if [ -n "$rl_5h" ] || [ -n "$rl_7d" ]; then
     rlstr+=$(printf "5h ${c5}%s%%\033[0m" "$rl5")
     if [ -n "$rl_5h_reset" ]; then
       rem=$(fmt_remaining "$rl_5h_reset")
-      [ -n "$rem" ] && rlstr+=$(printf " \033[2m(%s)\033[0m" "$rem")
+      [ -n "$rem" ] && rlstr+=$(printf " \033[2m%s\033[0m" "$rem")
     fi
   fi
   if [ -n "$rl_7d" ]; then
@@ -134,8 +128,8 @@ if [ -n "$rl_5h" ] || [ -n "$rl_7d" ]; then
     [ -n "$rl_5h" ] && rlstr+=" \033[2m·\033[0m "
     rlstr+=$(printf "7d ${c7}%s%%\033[0m" "$rl7")
     if [ -n "$rl_7d_reset" ]; then
-      d=$(fmt_date "$rl_7d_reset")
-      [ -n "$d" ] && rlstr+=$(printf " \033[2m(%s)\033[0m" "$d")
+      rem7=$(fmt_remaining "$rl_7d_reset")
+      [ -n "$rem7" ] && rlstr+=$(printf " \033[2m%s\033[0m" "$rem7")
     fi
   fi
 fi
