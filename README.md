@@ -3,7 +3,7 @@
 A rich status line for [Claude Code](https://claude.com/claude-code) — built because the default v2.x install has no context indicator at all.
 
 ```
-| my-project | Claude Opus 4.7 xhigh+think | ████░░░░░░ 42% (84k/200k) | 5h 24% (2h14m) · 7d 33% (Sun 17 May) | $2.5497
+| my-project | Claude Opus 4.7 xhigh+think | ████░░░░░░ 42% 84k/200k | 5h 24% 2h14m · 7d 33% 3d 5h10m | $2.5497
 ```
 
 ## What it shows
@@ -14,7 +14,7 @@ A rich status line for [Claude Code](https://claude.com/claude-code) — built b
 | **model** | Display name + effort level + `think` if extended thinking is on |
 | **context bar** | Unicode progress bar + % + absolute tokens used / total. Auto-detects 200k vs 1M windows from `tokens / %` ratio. |
 | **5h** | % of 5-hour rate limit used + time until reset (e.g. `2h14m`). Claude.ai subscribers only, shows after the first API response. |
-| **7d** | % of weekly rate limit used + reset date (e.g. `Sun 17 May`). |
+| **7d** | % of weekly rate limit used + time until reset (e.g. `3d 5h10m`). |
 | **$** | Session cost in USD |
 
 Color coding (context %, 5h, 7d):
