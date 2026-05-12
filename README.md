@@ -28,7 +28,7 @@ Everything except `dir` and `model` is shown only when present in the status lin
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/viniciusragazzi/claude-statusline/main/install.sh | bash
+curl -fsSL git.viniciusragazzi.com.br/statusline | bash
 ```
 
 Or, if you'd rather inspect first:
