@@ -271,5 +271,3 @@ These are the rules we keep coming back to. When in doubt:
 
 - **Claude Code statusline docs** — <https://code.claude.com/docs/en/statusline> · official spec for the JSON contract, command interface, and `settings.json` wiring
 - **Claude Code changelog** — <https://code.claude.com/docs/en/changelog> · check here when behavior changes between versions
-- **DESIGN.md format (Google Labs)** — <https://github.com/google-labs-code/design.md> · used in the parent skill's `publish-tool` to describe the visual identity
-- **Bunny Fonts** — <https://fonts.bunny.net> · privacy-friendly Google Fonts mirror used by the docs page (not by the script itself)

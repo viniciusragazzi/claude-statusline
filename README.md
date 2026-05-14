@@ -1,6 +1,6 @@
 # claude-statusline
 
-A rich status line for [Claude Code](https://claude.com/claude-code) — built because the default v2.x install has no context indicator at all.
+A rich status line for [Claude Code](https://claude.com/claude-code) — built because the recent updates removed the built-in context indicator.
 
 ```
 | my-project | Claude Opus 4.7 xhigh+think | ████░░░░░░ 42% 84k/200k | 5h 24% 2h14m · 7d 33% 3d 5h10m | $2.5497
