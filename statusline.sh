@@ -37,7 +37,6 @@ fi
 
 if [ -n "$used_pct" ]; then
   ui=$(printf '%.0f' "$used_pct" 2>/dev/null || echo 0)
-  [ "$total" -eq 0 ] && total=$(( max_tokens * ui / 100 ))
 else
   if [ "$total" -gt 0 ]; then
     ui=$(awk "BEGIN { printf \"%.0f\", ($total / $max_tokens) * 100 }")
@@ -89,8 +88,13 @@ fmt_remaining() {
   fi
 }
 
-used_str=$(fmt_tokens "$total")
 max_str=$(fmt_tokens "$max_tokens")
+if [ "$total" -gt 0 ]; then
+  used_str=$(fmt_tokens "$total")
+  token_part="${used_str}/${max_str}"
+else
+  token_part="${max_str}"
+fi
 
 segments=10
 filled=$(( ui * segments / 100 ))
@@ -140,5 +144,5 @@ else
   coststr=''
 fi
 
-printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m%s/%s\033[0m%b%s" \
-  "$dir" "$modelinfo" "$bar" "$ui" "$used_str" "$max_str" "$rlstr" "$coststr"
+printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m%s\033[0m%b%s" \
+  "$dir" "$modelinfo" "$bar" "$ui" "$token_part" "$rlstr" "$coststr"
