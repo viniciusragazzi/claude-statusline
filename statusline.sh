@@ -22,27 +22,29 @@ if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   total=$(( ${tokens:-0} + ${cache_read:-0} + ${cache_creation:-0} ))
 fi
 
-if [ -n "$used_pct" ] && [ "$total" -gt 0 ] && awk "BEGIN { exit !($used_pct > 0.1) }"; then
+# Determine max_tokens. model_id is the source of truth (user-configured).
+# Fall back to derived (tokens/pct ratio) only when model_id doesn't indicate.
+if [[ "$model_id" == *"[1m]"* ]] || [[ "$model_id" == *"-1m"* ]]; then
+  max_tokens=1000000
+elif [ -n "$used_pct" ] && [ "$total" -gt 0 ] && awk "BEGIN { exit !($used_pct > 0.1) }"; then
   derived=$(awk "BEGIN { printf \"%.0f\", $total / ($used_pct / 100) }")
   if [ "$derived" -gt 500000 ]; then
     max_tokens=1000000
   else
     max_tokens=200000
   fi
-elif [[ "$model_id" == *"[1m]"* ]] || [[ "$model_id" == *"-1m"* ]]; then
-  max_tokens=1000000
 else
   max_tokens=200000
 fi
 
-if [ -n "$used_pct" ]; then
+# Compute % from real tokens / max. Claude's used_pct can be stale
+# after a window switch (200k <-> 1M); recomputing keeps the display honest.
+if [ "$total" -gt 0 ]; then
+  ui=$(awk "BEGIN { printf \"%.0f\", ($total / $max_tokens) * 100 }")
+elif [ -n "$used_pct" ]; then
   ui=$(printf '%.0f' "$used_pct" 2>/dev/null || echo 0)
 else
-  if [ "$total" -gt 0 ]; then
-    ui=$(awk "BEGIN { printf \"%.0f\", ($total / $max_tokens) * 100 }")
-  else
-    ui=0
-  fi
+  ui=0
 fi
 
 fmt_tokens() {
