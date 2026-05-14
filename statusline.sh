@@ -12,6 +12,7 @@ rl_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 rl_7d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 rl_5h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 rl_7d_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+worktree=$(echo "$input" | jq -r '.worktree.branch // .worktree.name // empty')
 
 total=0
 transcript=$(echo "$input" | jq -r '.transcript_path // empty')
@@ -140,11 +141,16 @@ if [ -n "$rl_5h" ] || [ -n "$rl_7d" ]; then
   fi
 fi
 
+wtstr=''
+if [ -n "$worktree" ]; then
+  wtstr=$(printf ' \033[2m|\033[0m \033[0;33mwt\033[0m \033[2m%s\033[0m' "$worktree")
+fi
+
 if [ -n "$cost" ]; then
   coststr=$(printf ' \033[2m|\033[0m \033[2m$%.4f\033[0m' "$cost")
 else
   coststr=''
 fi
 
-printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m%s\033[0m%b%s" \
-  "$dir" "$modelinfo" "$bar" "$ui" "$token_part" "$rlstr" "$coststr"
+printf "\033[2m|\033[0m \033[0;36m%s\033[0m \033[2m|\033[0m \033[0;35m%b\033[0m \033[2m|\033[0m ${ctx_color}%s %s%% \033[2m%s\033[0m%b%s%s" \
+  "$dir" "$modelinfo" "$bar" "$ui" "$token_part" "$rlstr" "$wtstr" "$coststr"

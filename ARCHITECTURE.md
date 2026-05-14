@@ -38,6 +38,8 @@ Claude Code provides these fields on stdin (only the ones we care about):
 | `.rate_limits.seven_day.used_percentage` | number | % of weekly window used |
 | `.rate_limits.seven_day.resets_at` | number | **Unix epoch seconds** when 7d window resets |
 | `.cost.total_cost_usd` | number | Session cost in USD |
+| `.worktree.name` | string | Worktree slug, only present in `--worktree` sessions |
+| `.worktree.branch` | string | Git branch backing the worktree (often same as name) |
 
 **Upstream reference:** Anthropic's official Claude Code statusline docs are at <https://code.claude.com/docs/en/statusline>. They cover the supported fields, the command interface, and how to wire a script into `settings.json`. Read those first if you're new to Claude Code statuslines.
 
