@@ -270,4 +270,5 @@ These are the rules we keep coming back to. When in doubt:
 ## 13. References
 
 - **Claude Code statusline docs** — <https://code.claude.com/docs/en/statusline> · official spec for the JSON contract, command interface, and `settings.json` wiring
+- **`/statusline` slash command** — type `/statusline` in any Claude Code session to launch the official interactive setup agent. It reads your shell PS1, asks what fields you want, and writes a custom `statusline-command.sh` + updates `settings.json`. Use it as an **alternative starting point** if you want to roll your own from scratch instead of forking this script.
 - **Claude Code changelog** — <https://code.claude.com/docs/en/changelog> · check here when behavior changes between versions
