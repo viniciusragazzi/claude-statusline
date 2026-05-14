@@ -65,6 +65,8 @@ Claude Code calls the configured `statusLine.command` with a JSON payload piped 
 
 Window size is derived from the live data (`tokens / used_percentage`) and snapped to 200k or 1M, so 1M-context models like `claude-opus-4-6[1m]` show the correct total without hardcoded model lists.
 
+For full details — the JSON contract, percentage computation rules, bug history, testing recipe — see [ARCHITECTURE.md](ARCHITECTURE.md). The official Claude Code statusline spec lives at <https://code.claude.com/docs/en/statusline>.
+
 ## License
 
 MIT
