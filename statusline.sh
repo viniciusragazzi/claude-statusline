@@ -2,9 +2,23 @@
 input=$(cat)
 
 model=$(echo "$input" | jq -r '.model.display_name // "?"')
+
+# A model the CLI has no friendly name for yet arrives as a raw id
+# ("claude-opus-5"), which is noisy in a one-line bar. Turn it into "Opus 5".
+# Names that are already formatted ("Opus 4.8") don't start with claude- and
+# pass through untouched.
+if [[ "$model" == claude-* ]]; then
+  _m=${model#claude-}
+  _m=${_m%-2[0-9][0-9][0-9][0-9][0-9][0-9][0-9]}   # drop trailing date stamp
+  _fam=${_m%%-*}
+  _ver=${_m#*-}
+  [ "$_ver" = "$_m" ] && _ver=""
+  model="$(tr '[:lower:]' '[:upper:]' <<< "${_fam:0:1}")${_fam:1}${_ver:+ ${_ver//-/.}}"
+fi
 model_id=$(echo "$input" | jq -r '.model.id // ""')
 dir=$(basename "$(echo "$input" | jq -r '.workspace.current_dir // .cwd // ""')")
 used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+cw_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
 cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
 effort=$(echo "$input" | jq -r '.effort.level // empty')
 thinking=$(echo "$input" | jq -r '.thinking.enabled // empty')
@@ -23,9 +37,15 @@ if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   total=$(( ${tokens:-0} + ${cache_read:-0} + ${cache_creation:-0} ))
 fi
 
-# Determine max_tokens. model_id is the source of truth (user-configured).
-# Fall back to derived (tokens/pct ratio) only when model_id doesn't indicate.
-if [[ "$model_id" == *"[1m]"* ]] || [[ "$model_id" == *"-1m"* ]]; then
+# Determine max_tokens. context_window_size is the real window, reported by
+# Claude Code itself — authoritative, and the only signal that stays correct
+# when the model changes mid-session (switching via /model does NOT resize the
+# live window). Inferring from model_id or from the tokens/% ratio breaks on
+# every new model and on stale percentages; both are kept as fallbacks for
+# older CLIs that don't send the field.
+if [ -n "$cw_size" ] && [[ "$cw_size" =~ ^[0-9]+$ ]] && [ "$cw_size" -gt 0 ]; then
+  max_tokens=$cw_size
+elif [[ "$model_id" == *"[1m]"* ]] || [[ "$model_id" == *"-1m"* ]]; then
   max_tokens=1000000
 elif [ -n "$used_pct" ] && [ "$total" -gt 0 ] && awk "BEGIN { exit !($used_pct > 0.1) }"; then
   derived=$(awk "BEGIN { printf \"%.0f\", $total / ($used_pct / 100) }")

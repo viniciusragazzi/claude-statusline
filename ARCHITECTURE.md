@@ -29,6 +29,7 @@ Claude Code provides these fields on stdin (only the ones we care about):
 | `.model.id` | string | Model identifier — may include suffixes like `[1m]` or `-1m` indicating context window |
 | `.workspace.current_dir` | string | Absolute path of cwd |
 | `.cwd` | string | Fallback for current dir |
+| `.context_window.context_window_size` | number | **Live window size in tokens** — `200000`, or `1000000` on extended-context sessions. Authoritative (§4) |
 | `.context_window.used_percentage` | number | Claude's report of % context consumed |
 | `.transcript_path` | string | Path to the session's JSONL transcript file |
 | `.effort.level` | string | `low`/`medium`/`high`/`xhigh`/`max` — only present on reasoning models |
@@ -70,21 +71,29 @@ When the transcript file is missing or unparseable, `total` stays `0`. The displ
 
 ## 4. Window size detection
 
-Opus has two context window sizes: 200k (default) and 1M (opt-in via `claude-opus-4-*[1m]` or `-1m` suffix). We need to know which one is active to render the bar correctly.
+Sessions run in either a 200k or a 1M context window, and we need to know which to render the bar correctly.
+
+Claude Code reports the live size in `context_window.context_window_size`. **That field is the answer** — everything else in this section is legacy fallback.
 
 Detection order (first match wins):
 
 ```
-1. model_id contains [1m] or -1m  →  max_tokens = 1M
-2. derived = total / (used_pct/100)
+1. context_window_size > 0         →  max_tokens = that value
+2. model_id contains [1m] or -1m   →  max_tokens = 1M
+3. derived = total / (used_pct/100)
    if derived > 500k                →  max_tokens = 1M
    else                             →  max_tokens = 200k
-3. (no signal)                      →  max_tokens = 200k (assume default)
+4. (no signal)                      →  max_tokens = 200k (assume default)
 ```
 
-**Why model_id wins over derived:** the user explicitly chose a window via configuration. The derived ratio can lag behind reality (see §9 bug history) — model_id is authoritative.
+**Why the reported size beats every inference.** This project spent two bugs (§10) trying to infer the window from indirect signals, and both classes of inference are wrong in a way the field is not:
 
-The 500k threshold for derived is arbitrary but safe: any ratio that puts the inferred max above 500k is almost certainly 1M (no 200k session has ratios that would imply 500k+).
+- *Inferring from the model name* assumes the model determines the window. It doesn't. Switching model mid-session with `/model` does **not** resize the window you're already in — a session that started at 200k stays at 200k even after switching to a model whose fresh sessions open at 1M. A name-based rule reports the window the session *would* have had, not the one it has.
+- *Inferring from the `tokens / used_percentage` ratio* only works while `used_percentage` is fresh. It goes stale exactly when the window changes (§9), which is precisely when you need the answer.
+
+There's also a maintenance argument: any name-based rule needs an edit for every model release, and silently under-reports until someone notices. That's how bug-3 happened.
+
+Steps 2–4 are retained only for CLI versions that don't send `context_window_size`. The 500k threshold in step 3 is arbitrary but safe: any ratio implying a max above 500k is almost certainly a 1M session.
 
 ---
 
@@ -161,6 +170,14 @@ When the user changes context window mid-session (e.g. via `/1m` command or sett
 
 **Mitigation:** compute % from `total / max_tokens` when we have transcript data.
 
+### Switching model mid-session does not resize the context window
+
+`/model <something-with-a-bigger-window>` changes which model answers, not how
+much room the running session has. A session that started at 200k stays at 200k;
+only a **new** session opens at the larger size. `context_window_size` reflects
+this correctly — model names don't, which is why they can't be used to infer the
+window (§4, §10 bug-3).
+
 ### `resets_at` is epoch seconds, not ISO 8601
 
 Official docs (and at least one community blog post) say ISO 8601. The binary's docstring says number. The binary is right. Always treat as integer Unix timestamp.
@@ -171,7 +188,11 @@ On a fresh session before any API round-trip completes, the transcript might be 
 
 ### `model.id` format varies
 
-Seen forms: `claude-opus-4-7`, `claude-opus-4-6[1m]`, `claude-opus-4-7-1m`. Both `[1m]` and `-1m` indicate 1M context. We match both.
+Seen forms: `claude-opus-4-7`, `claude-opus-4-6[1m]`, `claude-opus-4-7-1m`, `claude-opus-5`, and dated ids like `claude-haiku-4-5-20251001`. Both `[1m]` and `-1m` indicate 1M context; we still match them in the fallback path, but the id is no longer how we determine the window (§4).
+
+### `display_name` can be the raw model id
+
+For a model the installed CLI has no friendly name for yet, `display_name` comes through as the id itself (`claude-opus-5` rather than `Opus 5`). We format it for display. Don't assume `display_name` is presentation-ready.
 
 ### Bunny Fonts CDN can be slow on first render
 
@@ -205,11 +226,40 @@ When a user switched their session from 200k to 1M context, Claude Code continue
 
 Both bugs were reported by a friend of [@euviniciusragazzi](https://www.instagram.com/euviniciusragazzi/) after switching Opus 4.7 to 1M mid-session.
 
+### bug-3 — new models fell back to 200k because detection was name-based
+*(2026-07-25, day after the Opus 5 release)*
+
+`claude-opus-5` matched none of the 1M patterns (`[1m]`, `-1m`), so step 1 of §4 stayed silent and the window came from the `tokens / used_percentage` ratio. Whenever that percentage was stale or missing — which is the normal state right after a model switch — the bar reported `50k/200k @ 25%` for a session whose real window was 1M and whose real usage was 5%.
+
+The tempting fix was to add Opus 5 to the pattern list. **That fix would have been wrong**, and testing it is what caught it: switching model with `/model` doesn't resize the live window, so a session that switched to Opus 5 is still a 200k session. Mapping the name to 1M would have rendered 8% where the truth was 42% — under-reporting pressure on the context precisely when the user needs to know about it. It also would have left the next model release broken all over again.
+
+**Fix:** read `context_window.context_window_size` and treat it as authoritative (§4). Name and ratio inference demoted to fallbacks for older CLIs.
+
+**Also fixed in same commit:** a model with no friendly name yet arrives with `display_name` set to the raw id (`claude-opus-5`); it's now formatted for display (`Opus 5`).
+
 ---
 
 ## 11. Testing
 
-There's no automated test suite yet — bash + integration with Claude Code makes harness setup non-trivial. Manual testing recipe:
+`test-statusline.sh` covers window-size resolution, the legacy fallbacks, and model name formatting:
+
+```bash
+bash test-statusline.sh
+```
+
+The suite honours a `STATUSLINE` override so you can point it at another revision — useful to confirm a test actually goes red against the code that had the bug, rather than passing vacuously:
+
+```bash
+git show HEAD~1:statusline.sh > /tmp/old.sh
+STATUSLINE=/tmp/old.sh bash test-statusline.sh   # expect failures
+```
+
+Two traps worth knowing if you extend it:
+
+- **Compare percentages numerically.** `"25%"` contains the substring `"5%"`, so a substring assertion reports green on a wrong value. The suite has a separate `check_pct` helper for this — the naive version passed a broken case while this suite was being written.
+- **Don't assert only through the payload's percentage.** Several cases pass under the *old* code because the ratio heuristic happens to agree when `used_percentage` is accurate. The cases that actually discriminate are the ones where that percentage is stale or absent.
+
+Manual recipe, for one-off renders:
 
 ```bash
 # Fake a Claude Code render
@@ -223,24 +273,33 @@ Useful test payloads:
 echo '{
   "model":{"display_name":"Claude Opus 4.7","id":"claude-opus-4-7"},
   "workspace":{"current_dir":"/tmp/test"},
-  "context_window":{"used_percentage":42},
+  "context_window":{"context_window_size":200000,"used_percentage":42},
   "transcript_path":"/tmp/fake-transcript.jsonl"
 }' | bash statusline.sh
 
-# 1M mode, right after switch (stale used_pct, real tokens still low)
+# 1M session with a stale used_pct (real tokens still low)
 echo '{
   "model":{"display_name":"Claude Opus 4.7","id":"claude-opus-4-7[1m]"},
   "workspace":{"current_dir":"/tmp/test"},
-  "context_window":{"used_percentage":77},
+  "context_window":{"context_window_size":1000000,"used_percentage":77},
   "transcript_path":"/tmp/fake-transcript.jsonl"
 }' | bash statusline.sh
 # Expected: "15% 152k/1M" (computed from actuals, not stale 77%)
+
+# Session that switched to a 1M-capable model but is still a 200k session
+echo '{
+  "model":{"display_name":"claude-opus-5","id":"claude-opus-5"},
+  "workspace":{"current_dir":"/tmp/test"},
+  "context_window":{"context_window_size":200000,"used_percentage":42},
+  "transcript_path":"/tmp/fake-transcript.jsonl"
+}' | bash statusline.sh
+# Expected: "Opus 5 ... 76% 152k/200k" — the window did NOT grow with the model
 
 # No transcript available
 echo '{
   "model":{"display_name":"Claude Opus 4.7","id":"claude-opus-4-7[1m]"},
   "workspace":{"current_dir":"/tmp/test"},
-  "context_window":{"used_percentage":77}
+  "context_window":{"context_window_size":1000000,"used_percentage":77}
 }' | bash statusline.sh
 # Expected: "77% 1M" (no fake tokens)
 ```
@@ -251,7 +310,7 @@ Where `/tmp/fake-transcript.jsonl` contains a line like:
 {"input_tokens":2000,"cache_read_input_tokens":148000,"cache_creation_input_tokens":2000}
 ```
 
-Before merging a change, run all three scenarios mentally (or actually) and confirm output makes sense.
+Run `bash test-statusline.sh` before merging; the manual payloads above are for eyeballing a change, not a substitute for it.
 
 ---
 

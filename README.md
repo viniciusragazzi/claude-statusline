@@ -12,7 +12,7 @@ A rich status line for [Claude Code](https://claude.com/claude-code) — built b
 |---|---|
 | **dir** | Basename of the current working directory |
 | **model** | Display name + effort level + `think` if extended thinking is on |
-| **context bar** | Unicode progress bar + % + absolute tokens used / total. Auto-detects 200k vs 1M windows from `tokens / %` ratio. |
+| **context bar** | Unicode progress bar + % + absolute tokens used / total. Reads the live window size from Claude Code, so 200k and 1M sessions are both correct without a model list. |
 | **5h** | % of 5-hour rate limit used + time until reset (e.g. `2h14m`). Claude.ai subscribers only, shows after the first API response. |
 | **7d** | % of weekly rate limit used + time until reset (e.g. `3d 5h10m`). |
 | **$** | Session cost in USD |
@@ -57,13 +57,16 @@ Claude Code calls the configured `statusLine.command` with a JSON payload piped 
 
 - `.model.display_name`, `.model.id`
 - `.workspace.current_dir`
+- `.context_window.context_window_size` — the live window size in tokens
 - `.context_window.used_percentage`
 - `.transcript_path` — parsed for the last `input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` to compute absolute usage
 - `.effort.level`, `.thinking.enabled`
 - `.rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}` — `resets_at` is **Unix epoch seconds**, not ISO 8601 (this is a common gotcha that broke earlier community scripts)
 - `.cost.total_cost_usd`
 
-Window size is derived from the live data (`tokens / used_percentage`) and snapped to 200k or 1M, so 1M-context models like `claude-opus-4-6[1m]` show the correct total without hardcoded model lists.
+Window size comes straight from `context_window_size`, which Claude Code reports on every render. That matters more than it sounds: switching model mid-session with `/model` does **not** resize the window you're already in, so the model name can't tell you how much room you actually have — only the reported size can. Guessing from the model id or from the `tokens / used_percentage` ratio is kept as a fallback for older CLIs that don't send the field.
+
+Run the test suite with `bash test-statusline.sh` — it covers the window-size rules, the legacy fallbacks, and model name formatting.
 
 For full details — the JSON contract, percentage computation rules, bug history, testing recipe — see [ARCHITECTURE.md](ARCHITECTURE.md). The official Claude Code statusline spec lives at <https://code.claude.com/docs/en/statusline>.
 
