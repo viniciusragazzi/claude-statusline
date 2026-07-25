@@ -37,12 +37,12 @@ if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   total=$(( ${tokens:-0} + ${cache_read:-0} + ${cache_creation:-0} ))
 fi
 
-# Determine max_tokens. context_window_size is the real window, reported by
-# Claude Code itself — authoritative, and the only signal that stays correct
-# when the model changes mid-session (switching via /model does NOT resize the
-# live window). Inferring from model_id or from the tokens/% ratio breaks on
-# every new model and on stale percentages; both are kept as fallbacks for
-# older CLIs that don't send the field.
+# Determine max_tokens. context_window_size is the window Claude Code reports:
+# the best signal available, but not reliable on its own (it has been seen
+# reporting 200k for sessions running at 1M) — the sanity floor below arbitrates.
+# Inferring from model_id or from the tokens/% ratio breaks on every new model
+# and on stale percentages; both are kept as fallbacks for older CLIs that
+# don't send the field.
 if [ -n "$cw_size" ] && [[ "$cw_size" =~ ^[0-9]+$ ]] && [ "$cw_size" -gt 0 ]; then
   max_tokens=$cw_size
 elif [[ "$model_id" == *"[1m]"* ]] || [[ "$model_id" == *"-1m"* ]]; then
@@ -56,6 +56,16 @@ elif [ -n "$used_pct" ] && [ "$total" -gt 0 ] && awk "BEGIN { exit !($used_pct >
   fi
 else
   max_tokens=200000
+fi
+
+# Sanity floor: a window cannot be SMALLER than the tokens already inside it.
+# context_window_size is the best signal available but it isn't trustworthy on
+# its own — on 2026-07-25, Opus 5 sessions reported 200000 while running with
+# 216k and 451k tokens in flight and no compaction, rendering 108% and 226%.
+# When the real token count contradicts the reported window, the count wins
+# (1M is the only larger window that exists).
+if [ "$total" -gt "$max_tokens" ]; then
+  max_tokens=1000000
 fi
 
 # Compute % from real tokens / max. Claude's used_pct can be stale

@@ -64,7 +64,7 @@ Claude Code calls the configured `statusLine.command` with a JSON payload piped 
 - `.rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}` — `resets_at` is **Unix epoch seconds**, not ISO 8601 (this is a common gotcha that broke earlier community scripts)
 - `.cost.total_cost_usd`
 
-Window size comes straight from `context_window_size`, which Claude Code reports on every render. That matters more than it sounds: switching model mid-session with `/model` does **not** resize the window you're already in, so the model name can't tell you how much room you actually have — only the reported size can. Guessing from the model id or from the `tokens / used_percentage` ratio is kept as a fallback for older CLIs that don't send the field.
+Window size starts from `context_window_size`, which Claude Code reports on every render, and is then sanity-checked against the real token count from the transcript. The check is not paranoia: Opus 5 sessions have been observed reporting a 200k window while carrying 451k tokens. No reported signal is trusted on its own — a window smaller than the tokens already inside it is impossible, and when they disagree the measurement wins.
 
 Run the test suite with `bash test-statusline.sh` — it covers the window-size rules, the legacy fallbacks, and model name formatting.
 

@@ -29,7 +29,7 @@ Claude Code provides these fields on stdin (only the ones we care about):
 | `.model.id` | string | Model identifier — may include suffixes like `[1m]` or `-1m` indicating context window |
 | `.workspace.current_dir` | string | Absolute path of cwd |
 | `.cwd` | string | Fallback for current dir |
-| `.context_window.context_window_size` | number | **Live window size in tokens** — `200000`, or `1000000` on extended-context sessions. Authoritative (§4) |
+| `.context_window.context_window_size` | number | Reported window size in tokens — `200000` or `1000000`. Best available signal, but can under-report; always sanity-check against real tokens (§4, §9) |
 | `.context_window.used_percentage` | number | Claude's report of % context consumed |
 | `.transcript_path` | string | Path to the session's JSONL transcript file |
 | `.effort.level` | string | `low`/`medium`/`high`/`xhigh`/`max` — only present on reasoning models |
@@ -44,7 +44,7 @@ Claude Code provides these fields on stdin (only the ones we care about):
 
 **Upstream reference:** Anthropic's official Claude Code statusline docs are at <https://code.claude.com/docs/en/statusline>. They cover the supported fields, the command interface, and how to wire a script into `settings.json`. Read those first if you're new to Claude Code statuslines.
 
-**Why this doc still exists:** in practice we hit several cases where the official docs were incomplete or out of date — `resets_at` documented as ISO 8601 but actually epoch seconds (§6), and `used_percentage` behavior after a window switch isn't covered at all (§9). The field list above was cross-checked against the actual binary at `/root/.local/share/claude/versions/<version>` via `strings` — when the binary disagreed with the docs, the binary won.
+**Why this doc still exists:** in practice we hit several cases where the official docs were incomplete or out of date — `resets_at` documented as ISO 8601 but actually epoch seconds (§6), and `used_percentage` behavior after a window switch isn't covered at all (§9). The field list above was cross-checked against the actual binary at `~/.local/share/claude/versions/<version>` via `strings` — when the binary disagreed with the docs, the binary won.
 
 ---
 
@@ -73,9 +73,9 @@ When the transcript file is missing or unparseable, `total` stays `0`. The displ
 
 Sessions run in either a 200k or a 1M context window, and we need to know which to render the bar correctly.
 
-Claude Code reports the live size in `context_window.context_window_size`. **That field is the answer** — everything else in this section is legacy fallback.
+Claude Code reports the live size in `context_window.context_window_size`. That's the best signal available — but it is **not** trustworthy on its own, so it is followed by a sanity floor.
 
-Detection order (first match wins):
+Resolution order (first match wins), then the floor:
 
 ```
 1. context_window_size > 0         →  max_tokens = that value
@@ -84,14 +84,20 @@ Detection order (first match wins):
    if derived > 500k                →  max_tokens = 1M
    else                             →  max_tokens = 200k
 4. (no signal)                      →  max_tokens = 200k (assume default)
+
+FLOOR (always, after the above):
+   if total > max_tokens            →  max_tokens = 1M
 ```
 
-**Why the reported size beats every inference.** This project spent two bugs (§10) trying to infer the window from indirect signals, and both classes of inference are wrong in a way the field is not:
+**Why no reported signal is trusted alone.** Every window bug in this project (§10) came from believing one indicator. Each one is wrong in its own way:
 
-- *Inferring from the model name* assumes the model determines the window. It doesn't. Switching model mid-session with `/model` does **not** resize the window you're already in — a session that started at 200k stays at 200k even after switching to a model whose fresh sessions open at 1M. A name-based rule reports the window the session *would* have had, not the one it has.
-- *Inferring from the `tokens / used_percentage` ratio* only works while `used_percentage` is fresh. It goes stale exactly when the window changes (§9), which is precisely when you need the answer.
+- *The model name* needs an edit for every model release and silently under-reports until someone notices (bug-3).
+- *The `tokens / used_percentage` ratio* only works while `used_percentage` is fresh, and it goes stale exactly when the window changes (§9) — precisely when you need the answer.
+- *`context_window_size` itself* has been observed reporting `200000` for Opus 5 sessions actually running at 1M, producing 108% and 226% bars (bug-4).
 
-There's also a maintenance argument: any name-based rule needs an edit for every model release, and silently under-reports until someone notices. That's how bug-3 happened.
+**Why the floor is the reliable part.** It doesn't ask what the window *should* be, it uses what the session *demonstrably did*: one API request carried N input tokens, so the window is at least N. A request of 451k tokens cannot happen in a 200k window. That's a measurement, not an inference, which is why it outranks everything above it.
+
+The floor jumps straight to 1M because 200k and 1M are the only two sizes; there's nothing in between to land on. It can't misfire on a legitimate 200k session either — the transcript sum is the input of a single request, so it cannot exceed the real window in the first place.
 
 Steps 2–4 are retained only for CLI versions that don't send `context_window_size`. The 500k threshold in step 3 is arbitrary but safe: any ratio implying a max above 500k is almost certainly a 1M session.
 
@@ -170,13 +176,20 @@ When the user changes context window mid-session (e.g. via `/1m` command or sett
 
 **Mitigation:** compute % from `total / max_tokens` when we have transcript data.
 
-### Switching model mid-session does not resize the context window
+### `context_window_size` can under-report the real window
 
-`/model <something-with-a-bigger-window>` changes which model answers, not how
-much room the running session has. A session that started at 200k stays at 200k;
-only a **new** session opens at the larger size. `context_window_size` reflects
-this correctly — model names don't, which is why they can't be used to infer the
-window (§4, §10 bug-3).
+Observed 2026-07-25 on Opus 5: sessions reporting `context_window_size: 200000`
+while the transcript showed single requests of 216k and 451k input tokens, with
+no compaction. The field said 200k; the session was demonstrably running at 1M.
+
+Treat it as a hint, not a fact. The token count from the transcript is the only
+hard lower bound available (§4 floor).
+
+*Retracted:* an earlier revision of this doc claimed that switching model
+mid-session doesn't resize the window, inferred from this same field reading
+200k after a `/model` switch. The inference was unsound — the session went on to
+carry 226k tokens without compacting. What actually happens on a mid-session
+switch is **not established here**; don't cite this doc for it either way.
 
 ### `resets_at` is epoch seconds, not ISO 8601
 
@@ -200,11 +213,11 @@ Not strictly a statusline issue (the docs page uses Bunny Fonts) but worth notin
 
 ### GitHub Pages `https_enforced` won't accept boolean as string
 
-When enabling HTTPS via `gh api -X PUT pages -f https_enforced=true`, `-f` sends the value as a string and the API returns 422. Use `-F https_enforced=true` (capital F = real type). Saved in memory `github-pages-cert-kick`.
+When enabling HTTPS via `gh api -X PUT pages -f https_enforced=true`, `-f` sends the value as a string and the API returns 422. Use `-F https_enforced=true` (capital F = real type).
 
 ### Pages cert provisioning can stall silently
 
-GitHub's Let's Encrypt automation occasionally takes 15-30 min instead of the typical 2-5. Toggling the custom domain via API (clear cname → wait 15s → re-set cname) kicks the workflow loose. Memory `github-pages-cert-kick` has the full recipe.
+GitHub's Let's Encrypt automation occasionally takes 15-30 min instead of the typical 2-5. Toggling the custom domain via API (clear cname → wait 15s → re-set cname) kicks the workflow loose.
 
 ---
 
@@ -231,11 +244,40 @@ Both bugs were reported by a friend of [@euviniciusragazzi](https://www.instagra
 
 `claude-opus-5` matched none of the 1M patterns (`[1m]`, `-1m`), so step 1 of §4 stayed silent and the window came from the `tokens / used_percentage` ratio. Whenever that percentage was stale or missing — which is the normal state right after a model switch — the bar reported `50k/200k @ 25%` for a session whose real window was 1M and whose real usage was 5%.
 
-The tempting fix was to add Opus 5 to the pattern list. **That fix would have been wrong**, and testing it is what caught it: switching model with `/model` doesn't resize the live window, so a session that switched to Opus 5 is still a 200k session. Mapping the name to 1M would have rendered 8% where the truth was 42% — under-reporting pressure on the context precisely when the user needs to know about it. It also would have left the next model release broken all over again.
+The tempting fix was to add Opus 5 to the pattern list — but that just moves the maintenance problem to the next release.
 
-**Fix:** read `context_window.context_window_size` and treat it as authoritative (§4). Name and ratio inference demoted to fallbacks for older CLIs.
+**Fix:** read `context_window.context_window_size` and prefer it over the inferences (§4). Name and ratio demoted to fallbacks for older CLIs.
 
 **Also fixed in same commit:** a model with no friendly name yet arrives with `display_name` set to the raw id (`claude-opus-5`); it's now formatted for display (`Opus 5`).
+
+**This fix was itself incomplete — see bug-4, same day.**
+
+### bug-4 — trusting the reported window produced bars above 100%
+*(2026-07-25, hours after bug-3)*
+
+bug-3's fix put `context_window_size` at the top of the chain, above a guard
+that read *"more than 200k real tokens in the transcript ⇒ the window can only
+be 1M"*. The field then reported `200000` for live Opus 5 sessions that were
+carrying 216k and 451k tokens, and because it was consulted first, the guard
+never ran. Real sessions rendered **`108% 216k/200k`** and **`226% 451k/200k`**.
+
+Two failures stacked here, and the second is the instructive one:
+
+1. The new signal was less reliable than advertised.
+2. **A working safety net was demoted underneath it.** The guard existed
+   precisely for "the stated window contradicts reality" and had been catching
+   this case; putting a new preferred signal above it silently disabled it.
+   Adding a better signal is not a reason to lower a check that validates
+   *any* signal.
+
+**Fix:** the guard was promoted to a floor applied *after* resolution, so it
+validates whatever the chain decided rather than competing with it (§4).
+
+**How it should have been caught:** the bug-3 test suite asserted the field was
+respected, never that the result was *coherent*. No case fed a token count
+larger than the reported window. A percentage above 100% is a self-evident
+contradiction and cheap to assert — the suite now covers both observed
+production values.
 
 ---
 
@@ -263,7 +305,7 @@ Manual recipe, for one-off renders:
 
 ```bash
 # Fake a Claude Code render
-echo '<json payload>' | bash /root/.claude/scripts/statusline.sh
+echo '<json payload>' | bash ~/.claude/scripts/statusline.sh
 ```
 
 Useful test payloads:
@@ -286,14 +328,15 @@ echo '{
 }' | bash statusline.sh
 # Expected: "15% 152k/1M" (computed from actuals, not stale 77%)
 
-# Session that switched to a 1M-capable model but is still a 200k session
+# Reported window contradicted by the token count (the bug-4 case)
+# 152k of tokens can't fit in the 100k this payload claims, so the floor fires.
 echo '{
   "model":{"display_name":"claude-opus-5","id":"claude-opus-5"},
   "workspace":{"current_dir":"/tmp/test"},
-  "context_window":{"context_window_size":200000,"used_percentage":42},
+  "context_window":{"context_window_size":100000,"used_percentage":42},
   "transcript_path":"/tmp/fake-transcript.jsonl"
 }' | bash statusline.sh
-# Expected: "Opus 5 ... 76% 152k/200k" — the window did NOT grow with the model
+# Expected: "Opus 5 ... 15% 152k/1M" — never a percentage above 100
 
 # No transcript available
 echo '{

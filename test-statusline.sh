@@ -66,15 +66,16 @@ out=$(run "$(jq -nc --arg t "$t" '{
 check     "1M window renders /1M" "$out" "50k/1M"
 check_pct "1M window renders 5%"  "$out" "5"
 
-# 2. Same model, session that switched mid-flight: the live window is still
-#    200k. Hardcoding "this model == 1M" would under-report here.
+# 2. A reported 200k window with the token count comfortably under it is taken
+#    at face value — no contradiction, nothing to override. Hardcoding
+#    "this model == 1M" by name would wrongly inflate the window here.
 t=$(mk_transcript m2 2 579 84262)
 out=$(run "$(jq -nc --arg t "$t" '{
   model:{id:"claude-opus-5",display_name:"claude-opus-5"},
   workspace:{current_dir:"/tmp/proj"}, transcript_path:$t,
   context_window:{context_window_size:200000, used_percentage:42}}')")
-check     "switched session keeps 200k" "$out" "84k/200k"
-check_pct "switched session shows 42%"  "$out" "42"
+check     "reported 200k under the limit is respected" "$out" "84k/200k"
+check_pct "reported 200k under the limit shows 42%" "$out" "42"
 
 # 3. The regression this suite was written for: real window is 1M but
 #    used_percentage is stale (computed against 200k). The tokens/% ratio
@@ -112,6 +113,46 @@ out=$(run "$(jq -nc --arg t "$t" '{
   workspace:{current_dir:"/tmp/proj"}, transcript_path:$t,
   context_window:{used_percentage:25}}')")
 check "ratio fallback resolves 200k" "$out" "50k/200k"
+
+echo "== sanity floor: reported window smaller than the tokens in it =="
+
+# 9/10. Observed in production 2026-07-25: Opus 5 sessions reporting
+#       context_window_size=200000 while carrying 216k and 451k tokens with no
+#       compaction. The bar rendered 108% and 226% — a self-evident
+#       contradiction. A reported window cannot outrank a real token count.
+t=$(mk_transcript m9 2 1737 216295)
+out=$(run "$(jq -nc --arg t "$t" '{
+  model:{id:"claude-opus-5",display_name:"claude-opus-5"},
+  workspace:{current_dir:"/tmp/proj"}, transcript_path:$t,
+  context_window:{context_window_size:200000, used_percentage:42}}')")
+check     "218k in a reported 200k window becomes 1M" "$out" "218k/1M"
+check_pct "218k never renders above 100%"             "$out" "22"
+
+t=$(mk_transcript m10 2 839 451833)
+out=$(run "$(jq -nc --arg t "$t" '{
+  model:{id:"claude-opus-5",display_name:"claude-opus-5"},
+  workspace:{current_dir:"/tmp/proj"}, transcript_path:$t,
+  context_window:{context_window_size:200000, used_percentage:42}}')")
+check     "452k in a reported 200k window becomes 1M" "$out" "452k/1M"
+check_pct "452k renders 45%, not 226%"                "$out" "45"
+
+# 11b. The payload documented in ARCHITECTURE §11 — keeps the doc honest.
+t=$(mk_transcript m11b 2000 2000 148000)
+out=$(run "$(jq -nc --arg t "$t" '{
+  model:{id:"claude-opus-5",display_name:"claude-opus-5"},
+  workspace:{current_dir:"/tmp/test"}, transcript_path:$t,
+  context_window:{context_window_size:100000, used_percentage:42}}')")
+check     "documented example renders 152k/1M" "$out" "152k/1M"
+check_pct "documented example renders 15%"     "$out" "15"
+
+# 11. The floor must NOT fire on a legitimate 200k session below the limit.
+t=$(mk_transcript m11 2 1000 180000)
+out=$(run "$(jq -nc --arg t "$t" '{
+  model:{id:"claude-opus-4-8",display_name:"Opus 4.8"},
+  workspace:{current_dir:"/tmp/proj"}, transcript_path:$t,
+  context_window:{context_window_size:200000, used_percentage:90}}')")
+check     "181k under a real 200k window stays 200k" "$out" "181k/200k"
+check_pct "181k under a real 200k window shows 91%"  "$out" "91"
 
 echo "== model name =="
 
